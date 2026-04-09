@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+temp_*/
+data/raw/**
+!data/raw/.gitkeep
+!data/raw/exercises/
+!data/raw/exercises/.gitkeep
+!data/raw/nutrition5k/
+!data/raw/nutrition5k/.gitkeep
+!data/raw/nutrition5k/metadata/
+!data/raw/nutrition5k/metadata/.gitkeep
+data/processed/**
+!data/processed/.gitkeep
+db/**
+!db/.gitkeep

@@ -1,0 +1,3 @@
+device_name,ram_gb,cpu,gpu,llm_fit_candidate,estimated_fit,notes,selected
+Asus Zenbook 14 OLED,16,Intel Core Ultra,Intel Arc integrated,Phi-3 Mini,pending,Good balance for local chat on lightweight hardware,yes
+HP 250 G9,16,Intel Core i5 12th Gen,Integrated graphics,Phi-3 Mini,pending,Reasonable CPU-only choice for first iteration,yes
