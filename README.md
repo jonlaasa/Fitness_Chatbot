@@ -82,12 +82,14 @@ db/
 notebooks/
   02_llm_fit_model_selection.md
   llm_fit_results_template.csv
+  03_prompt_engineering_experiments.md
 scripts/
   fetch_datasets.py
   ingest_exercises.py
   ingest_nutrition.py
   ingest_all.py
   build_index.py
+  compare_prompting.py
   query_rag.py
 src/
   ingestion/
@@ -233,6 +235,19 @@ The prompt is intentionally restrictive. It tells the model to:
 - keep the answer concise and factual
 
 This is important in a university setting because it makes the reasoning path more controllable and the limitations more explicit.
+
+### 7.9 Prompt engineering experiments
+
+On top of the main RAG pipeline, the repository now includes a small prompt engineering layer for controlled experiments.
+
+Available strategies:
+
+- `zero-shot`
+- `one-shot`
+- `few-shot`
+- `chain-of-thought`
+
+These strategies do not modify ingestion, embeddings, Chroma, or retrieval. They only modify how the retrieved context is presented to the LLM, which makes them suitable for academic comparison.
 
 ## 8. Resource-aware design
 
@@ -400,6 +415,24 @@ Interactive mode:
 .\.venv\Scripts\python scripts\query_rag.py
 ```
 
+Interactive mode with a specific prompt strategy:
+
+```powershell
+.\.venv\Scripts\python scripts\query_rag.py --strategy few-shot
+```
+
+Single question with a specific prompt strategy:
+
+```powershell
+.\.venv\Scripts\python scripts\query_rag.py --strategy zero-shot --question "Which exercises target the glutes?"
+```
+
+Compare all prompt strategies for the same question:
+
+```powershell
+.\.venv\Scripts\python scripts\compare_prompting.py --question "Which exercises target the glutes?"
+```
+
 You can also run:
 
 ```powershell
@@ -433,6 +466,11 @@ Observed local validation results:
 - 5006 nutrition records normalized
 - 5410 documents indexed in Chroma
 - successful example queries for chest and glute exercises
+
+The repository also includes two academic support artifacts:
+
+- `notebooks/02_llm_fit_model_selection.md` for documenting the LLM selection process
+- `notebooks/03_prompt_engineering_experiments.md` for documenting prompt engineering comparisons
 
 ## 16. Notes
 

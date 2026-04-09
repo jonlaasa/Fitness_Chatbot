@@ -6,7 +6,7 @@ from functools import lru_cache
 
 from src.embeddings.factory import build_embedding_model
 from src.llm.local_model import build_local_llm
-from src.llm.prompts import build_rag_prompt
+from src.llm.prompt_strategies import get_prompt_strategy
 from src.retrieval.vector_store import load_chroma_index
 from src.utils.paths import DB_DIR
 
@@ -24,10 +24,12 @@ class RetrievalEngine:
     vector_store: object
     llm: object
     top_k: int
+    prompt_strategy_name: str
 
     def answer(self, question: str) -> RetrievalResult:
         retrieved_documents = self.vector_store.similarity_search(question, k=self.top_k)
-        prompt = build_rag_prompt(question, retrieved_documents)
+        prompt_builder = get_prompt_strategy(self.prompt_strategy_name).builder
+        prompt = prompt_builder(question, retrieved_documents)
         answer = self.llm.invoke(prompt)
         return RetrievalResult(
             question=question,
@@ -42,12 +44,18 @@ def get_retrieval_engine(
     db_path: str | None = None,
     model_name: str | None = None,
     k: int | None = None,
+    prompt_strategy: str = "zero-shot",
 ) -> RetrievalEngine:
     embedding_model = build_embedding_model()
     vector_store = load_chroma_index(db_path or DB_DIR, embedding_model)
     top_k = k or int(os.getenv("TOP_K", "3"))
     llm = build_local_llm(model_name)
-    return RetrievalEngine(vector_store=vector_store, llm=llm, top_k=top_k)
+    return RetrievalEngine(
+        vector_store=vector_store,
+        llm=llm,
+        top_k=top_k,
+        prompt_strategy_name=prompt_strategy,
+    )
 
 
 def answer_question(
@@ -55,6 +63,12 @@ def answer_question(
     db_path: str | None = None,
     model_name: str | None = None,
     k: int | None = None,
+    prompt_strategy: str = "zero-shot",
 ) -> RetrievalResult:
-    engine = get_retrieval_engine(db_path=db_path, model_name=model_name, k=k)
+    engine = get_retrieval_engine(
+        db_path=db_path,
+        model_name=model_name,
+        k=k,
+        prompt_strategy=prompt_strategy,
+    )
     return engine.answer(question)
