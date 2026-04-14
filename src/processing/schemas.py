@@ -25,6 +25,7 @@ class NormalizedRecord:
     protein: float | None = None
     carbs: float | None = None
     fat: float | None = None
+    document_text: str = ""
     raw_payload: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:

@@ -13,12 +13,17 @@ from src.ingestion.exercises import (
     load_exercise_records,
     records_to_jsonl as exercises_to_jsonl,
 )
+from src.ingestion.diets import (
+    DietPdfIngestionError,
+    load_diet_pdf_records,
+    records_to_jsonl as diets_to_jsonl,
+)
 from src.ingestion.nutrition import (
     NutritionIngestionError,
     load_nutrition_records,
     records_to_jsonl as nutrition_to_jsonl,
 )
-from src.utils.paths import EXERCISES_RAW_DIR, NUTRITION_RAW_DIR, PROCESSED_DATA_DIR
+from src.utils.paths import DIETS_RAW_DIR, EXERCISES_RAW_DIR, NUTRITION_RAW_DIR, PROCESSED_DATA_DIR
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,6 +39,11 @@ def parse_args() -> argparse.Namespace:
         "--nutrition-dir",
         default=str(NUTRITION_RAW_DIR),
         help="Directory containing Nutrition5k metadata CSV files.",
+    )
+    parser.add_argument(
+        "--diets-dir",
+        default=str(DIETS_RAW_DIR),
+        help="Directory containing diet PDF files.",
     )
     return parser.parse_args()
 
@@ -53,6 +63,12 @@ def main() -> None:
         print(f"Nutrition ingestion error: {exc}")
         nutrition_records = []
 
+    try:
+        diet_records = load_diet_pdf_records(args.diets_dir)
+    except DietPdfIngestionError as exc:
+        print(f"Diet PDF ingestion error: {exc}")
+        diet_records = []
+
     if exercise_records:
         exercises_output = exercises_to_jsonl(
             exercise_records, PROCESSED_DATA_DIR / "exercises_normalized.jsonl"
@@ -65,7 +81,13 @@ def main() -> None:
         )
         print(f"Normalized {len(nutrition_records)} nutrition records -> {nutrition_output}")
 
-    if not exercise_records and not nutrition_records:
+    if diet_records:
+        diets_output = diets_to_jsonl(
+            diet_records, PROCESSED_DATA_DIR / "diets_normalized.jsonl"
+        )
+        print(f"Normalized {len(diet_records)} diet PDF records -> {diets_output}")
+
+    if not exercise_records and not nutrition_records and not diet_records:
         print("No datasets were processed. Add raw files and run the script again.")
 
 

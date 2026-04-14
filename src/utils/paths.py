@@ -18,4 +18,5 @@ RAW_DATA_DIR = DATA_DIR / "raw"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
 EXERCISES_RAW_DIR = _resolve_from_project("EXERCISES_DATA_DIR", "data/raw/exercises")
 NUTRITION_RAW_DIR = _resolve_from_project("NUTRITION_DATA_DIR", "data/raw/nutrition5k")
+DIETS_RAW_DIR = _resolve_from_project("DIETS_DATA_DIR", "data/raw/diets")
 DB_DIR = _resolve_from_project("CHROMA_DB_PATH", "db")

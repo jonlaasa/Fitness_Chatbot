@@ -30,6 +30,11 @@ def parse_args() -> argparse.Namespace:
         help="Path to normalized nutrition JSONL.",
     )
     parser.add_argument(
+        "--diets-path",
+        default=str(PROCESSED_DATA_DIR / "diets_normalized.jsonl"),
+        help="Path to normalized diet PDF JSONL.",
+    )
+    parser.add_argument(
         "--db-path",
         default=str(DB_DIR),
         help="Target Chroma persistence directory.",
@@ -41,7 +46,7 @@ def main() -> None:
     args = parse_args()
     records = []
 
-    for source_path in (args.exercises_path, args.nutrition_path):
+    for source_path in (args.exercises_path, args.nutrition_path, args.diets_path):
         path = Path(source_path)
         if path.exists():
             records.extend(load_normalized_records(path))

@@ -47,6 +47,10 @@ Important exclusions:
 - no large-scale crawling is used
 - no additional heavy datasets are included
 
+Additional PDF source:
+
+- a small Google Drive folder with diet and supplement PDFs used as an extra local knowledge source
+
 ## 4. Why only Nutrition5k metadata is used
 
 Only metadata is used for three reasons:
@@ -75,24 +79,33 @@ app/
 data/
   raw/
     exercises/
+    diets/
     nutrition5k/
       metadata/
   processed/
 db/
+conversations/
 notebooks/
   02_llm_fit_model_selection.md
   llm_fit_results_template.csv
   03_prompt_engineering_experiments.md
+  04_agent_tools.md
 scripts/
   fetch_datasets.py
+  ingest_diets.py
   ingest_exercises.py
   ingest_nutrition.py
   ingest_all.py
   build_index.py
   compare_prompting.py
   query_rag.py
+  run_agent.py
 src/
+  agent/
+    executor.py
+    tools.py
   ingestion/
+    diets.py
     exercises.py
     nutrition.py
   processing/
@@ -148,6 +161,19 @@ Nutrition normalization:
 
 Both are stored as JSONL in `data/processed/` for transparent inspection and debugging.
 
+Diet PDF normalization:
+
+- input: local PDF files from the Google Drive folder
+- output fields:
+  - `id`
+  - `source`
+  - `title`
+  - `category`
+  - `notes`
+  - `document_text`
+
+PDF titles are cleaned before indexing so labels such as `Copia de ...` do not appear in the retrieved metadata or in the generated answer.
+
 ### 7.2 Document design
 
 This project follows the explicit semantic unit strategy:
@@ -158,6 +184,12 @@ This project follows the explicit semantic unit strategy:
 No generic chunking is used. This is important academically because the document boundaries are easy to justify. Each record is already a meaningful unit of knowledge, so chunking would add complexity without clear benefit in this first iteration.
 
 The document builder converts normalized records into structured natural-language documents for embedding, while preserving metadata separately for retrieval output and later filtering.
+
+The same principle is applied to the PDF source:
+
+- 1 PDF = 1 document
+
+This keeps the implementation simple and makes the source traceable during retrieval.
 
 ### 7.3 Embeddings
 
@@ -213,6 +245,8 @@ Why `k=3`:
 - it is easy to justify and debug
 - it is appropriate for a first lightweight baseline
 
+When documents are shown in the CLI, the system prints not only the title but also relevant metadata keys and a short content preview. This makes retrieval behavior easier to inspect and aligns with the didactic style used in class notebooks.
+
 ### 7.7 LLM layer
 
 The generation layer is designed for a local Ollama model. The default recommendation is:
@@ -224,6 +258,51 @@ The code also auto-detects a locally available Ollama model if the preferred one
 Auxiliary note:
 
 - LLM-Fit can be used as a preliminary model-selection aid, but it is not part of the runtime pipeline
+
+### 7.7.1 Agent tools
+
+Besides the standard RAG pipeline, the repository includes a small local agent inspired by the class example. The goal is not to replace retrieval, but to show how a local LLM can decide when to use project-specific tools.
+
+The agent uses:
+
+- `ChatOllama`
+- `create_agent` from LangChain
+- two lightweight tools connected to the project domain
+
+Included tools:
+
+- `search_fitness_knowledge`
+  - searches the local Chroma knowledge base and returns the most relevant documents
+- `fitness_calculator`
+  - evaluates simple expressions such as BMI, calorie arithmetic, macro totals, or training volume
+
+This design makes sense for the project because one tool retrieves domain knowledge and the other performs useful numeric support tasks. It stays small, explainable, and aligned with a first local academic iteration.
+
+Besides the standard RAG pipeline, the repository includes a simple local agent inspired by the class example. This agent is built with:
+
+- `ChatOllama` for the local chat model
+- `create_agent` from LangChain
+- two local tools connected to the project domain
+
+The two tools are:
+
+- `search_fitness_knowledge`
+- `fitness_calculator`
+
+The first tool queries the same local Chroma knowledge base used by the RAG system, which allows the agent to retrieve exercise or nutrition information on demand. The second tool performs simple calculations useful in the domain, such as BMI, calorie arithmetic, macro totals, or training volume formulas.
+
+This agent layer does not replace the main RAG flow. It complements it and makes it possible to demonstrate a second interaction mode based on tool use, which is especially useful for the practical and academic part of the project.
+
+### 7.7.2 Conversation evidence
+
+The query and agent scripts save simple conversation evidence under `conversations/`.
+
+Each saved conversation includes:
+
+- `conversation.json`
+- `conversation.txt`
+
+This is useful for annexes, screenshots, and documenting practical tests with the LLM.
 
 ### 7.8 Prompting strategy
 
@@ -334,7 +413,7 @@ ollama pull phi3
 
 ## 13. How to run locally
 
-### Option A: download the lightweight source files automatically
+### Option A: download all source files automatically
 
 ```powershell
 .\.venv\Scripts\python scripts\fetch_datasets.py
@@ -347,6 +426,7 @@ This downloads:
 - `flexibility.json`
 - `dish_metadata_cafe1.csv`
 - `dish_metadata_cafe2.csv`
+- the shared Google Drive diet PDFs into `data/raw/diets/`
 
 ### Option B: place the raw files manually
 
@@ -354,6 +434,7 @@ Expected locations:
 
 - `data/raw/exercises/`
 - `data/raw/nutrition5k/metadata/`
+- `data/raw/diets/`
 
 ### Quick run in one command
 
@@ -391,6 +472,7 @@ And you can choose the validation question:
 Or separately:
 
 ```powershell
+.\.venv\Scripts\python scripts\ingest_diets.py
 .\.venv\Scripts\python scripts\ingest_exercises.py
 .\.venv\Scripts\python scripts\ingest_nutrition.py
 ```
@@ -407,6 +489,12 @@ Single question:
 
 ```powershell
 .\.venv\Scripts\python scripts\query_rag.py --question "Which exercises target the glutes?"
+```
+
+Single question using the PDF source:
+
+```powershell
+.\.venv\Scripts\python scripts\query_rag.py --question "What do the diet PDFs say about supplement risks?"
 ```
 
 Interactive mode:
@@ -433,6 +521,19 @@ Compare all prompt strategies for the same question:
 .\.venv\Scripts\python scripts\compare_prompting.py --question "Which exercises target the glutes?"
 ```
 
+Run the local agent with tools:
+
+```powershell
+.\.venv\Scripts\python scripts\run_agent.py --question "Find exercises for glutes and calculate the BMI for 80 kg and 1.78 m"
+```
+
+Saved conversation evidence:
+
+- every query creates a folder inside `conversations/`
+- each folder contains `conversation.txt` and `conversation.json`
+- this works for both the RAG script and the local agent
+- the saved files include retrieved document metadata and a short preview of each retrieved document
+
 You can also run:
 
 ```powershell
@@ -449,6 +550,8 @@ Example values are included in `.env.example`:
 - `CHROMA_DB_PATH`
 - `EXERCISES_DATA_DIR`
 - `NUTRITION_DATA_DIR`
+- `DIETS_DATA_DIR`
+- `DIETS_DRIVE_FOLDER_URL`
 
 ## 15. What has been validated in this workspace
 
@@ -456,6 +559,7 @@ This repository was executed locally in this workspace with:
 
 - real exercise JSON files from `longhaul-fitness/exercises`
 - real Nutrition5k dish metadata CSVs from the official dataset storage
+- real diet and supplement PDFs downloaded from the shared Google Drive folder
 - normalized outputs for both sources
 - a persisted Chroma database
 - successful retrieval and answer generation with a local Ollama model
@@ -464,13 +568,15 @@ Observed local validation results:
 
 - 404 exercise records normalized
 - 5006 nutrition records normalized
-- 5410 documents indexed in Chroma
+- 5 diet PDF records normalized
+- 5415 documents indexed in Chroma
 - successful example queries for chest and glute exercises
 
 The repository also includes two academic support artifacts:
 
 - `notebooks/02_llm_fit_model_selection.md` for documenting the LLM selection process
 - `notebooks/03_prompt_engineering_experiments.md` for documenting prompt engineering comparisons
+- `notebooks/04_agent_tools.md` for documenting the local agent and its tools
 
 ## 16. Notes
 

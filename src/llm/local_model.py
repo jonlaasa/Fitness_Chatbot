@@ -39,4 +39,8 @@ def resolve_ollama_model() -> str:
 
 
 def build_local_llm(model_name: str | None = None) -> OllamaLLM:
-    return OllamaLLM(model=model_name or resolve_ollama_model())
+    return OllamaLLM(
+        model=model_name or resolve_ollama_model(),
+        temperature=0.1,
+        num_predict=256,
+    )

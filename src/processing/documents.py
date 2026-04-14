@@ -16,6 +16,8 @@ def build_document(record: NormalizedRecord) -> Document:
         page_content = _render_exercise_document(record)
     elif record.record_type == "dish":
         page_content = _render_dish_document(record)
+    elif record.record_type == "diet_pdf":
+        page_content = _render_diet_pdf_document(record)
     else:
         page_content = _render_generic_document(record)
 
@@ -76,6 +78,18 @@ def _render_generic_document(record: NormalizedRecord) -> str:
         f"Title: {record.title}",
         f"Category: {record.category or 'unknown'}",
         f"Notes: {_join_sentences(record.notes)}",
+        f"Source: {record.source}",
+    ]
+    return "\n".join(parts)
+
+
+def _render_diet_pdf_document(record: NormalizedRecord) -> str:
+    parts = [
+        "Document type: diet_pdf",
+        f"Title: {record.title}",
+        f"Category: {record.category or 'diet_pdf'}",
+        f"Notes: {_join_sentences(record.notes)}",
+        f"Content summary: {record.document_text or 'not provided'}",
         f"Source: {record.source}",
     ]
     return "\n".join(parts)
