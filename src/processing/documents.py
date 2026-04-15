@@ -5,23 +5,43 @@ from langchain_core.documents import Document
 from src.processing.schemas import NormalizedRecord
 
 
+CHUNK_SIZE = 450
+CHUNK_OVERLAP = 80
+
+
 def build_documents(records: list[NormalizedRecord]) -> list[Document]:
-    """Convert normalized records into semantically complete RAG documents."""
+    """Convert normalized records into chunked retrieval documents."""
 
-    return [build_document(record) for record in records]
+    chunks: list[Document] = []
+    for record in records:
+        chunks.extend(build_document_chunks(record))
+    return chunks
 
 
-def build_document(record: NormalizedRecord) -> Document:
-    if record.record_type == "exercise":
-        page_content = _render_exercise_document(record)
-    elif record.record_type == "dish":
-        page_content = _render_dish_document(record)
-    elif record.record_type == "diet_pdf":
-        page_content = _render_diet_pdf_document(record)
-    else:
-        page_content = _render_generic_document(record)
+def build_document_chunks(record: NormalizedRecord) -> list[Document]:
+    content = _render_semantic_content(record)
+    chunk_texts = _split_text(content, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP)
+    if not chunk_texts:
+        chunk_texts = [content]
 
-    metadata = {
+    base_metadata = _build_metadata(record)
+    documents: list[Document] = []
+    chunk_count = len(chunk_texts)
+    for index, chunk_text in enumerate(chunk_texts, start=1):
+        chunk_metadata = {
+            **base_metadata,
+            "chunk_index": index,
+            "chunk_count": chunk_count,
+            "chunk_id": f"{record.id}__chunk_{index}",
+            "parent_id": record.id,
+            "parent_title": record.title,
+        }
+        documents.append(Document(page_content=chunk_text, metadata=chunk_metadata))
+    return documents
+
+
+def _build_metadata(record: NormalizedRecord) -> dict:
+    return {
         "id": record.id,
         "source": record.source,
         "record_type": record.record_type,
@@ -38,12 +58,20 @@ def build_document(record: NormalizedRecord) -> Document:
         "carbs": record.carbs,
         "fat": record.fat,
     }
-    return Document(page_content=page_content, metadata=metadata)
 
 
-def _render_exercise_document(record: NormalizedRecord) -> str:
+def _render_semantic_content(record: NormalizedRecord) -> str:
+    if record.record_type == "exercise":
+        return _render_exercise_content(record)
+    if record.record_type == "dish":
+        return _render_dish_content(record)
+    if record.record_type == "diet_pdf":
+        return _render_diet_pdf_content(record)
+    return _render_generic_content(record)
+
+
+def _render_exercise_content(record: NormalizedRecord) -> str:
     parts = [
-        f"Document type: exercise",
         f"Exercise name: {record.exercise_name or record.title}",
         f"Category: {record.category or 'unknown'}",
         f"Primary muscles: {_join_or_default(record.primary_muscles)}",
@@ -51,14 +79,12 @@ def _render_exercise_document(record: NormalizedRecord) -> str:
         f"Instructions: {_join_sentences(record.instructions)}",
         f"Notes: {_join_sentences(record.notes)}",
         f"Tags: {_join_or_default(record.tags)}",
-        f"Source: {record.source}",
     ]
     return "\n".join(parts)
 
 
-def _render_dish_document(record: NormalizedRecord) -> str:
+def _render_dish_content(record: NormalizedRecord) -> str:
     parts = [
-        "Document type: dish",
         f"Dish identifier: {record.dish_name or record.title}",
         f"Category: {record.category or 'nutrition_metadata'}",
         f"Ingredients: {_join_or_default(record.ingredients)}",
@@ -67,32 +93,45 @@ def _render_dish_document(record: NormalizedRecord) -> str:
         f"Carbs (g): {_number_or_default(record.carbs, 'unknown')}",
         f"Fat (g): {_number_or_default(record.fat, 'unknown')}",
         f"Notes: {_join_sentences(record.notes)}",
-        f"Source: {record.source}",
     ]
     return "\n".join(parts)
 
 
-def _render_generic_document(record: NormalizedRecord) -> str:
+def _render_diet_pdf_content(record: NormalizedRecord) -> str:
+    return record.document_text or "No PDF content available."
+
+
+def _render_generic_content(record: NormalizedRecord) -> str:
     parts = [
-        f"Document type: {record.record_type}",
         f"Title: {record.title}",
         f"Category: {record.category or 'unknown'}",
         f"Notes: {_join_sentences(record.notes)}",
-        f"Source: {record.source}",
     ]
     return "\n".join(parts)
 
 
-def _render_diet_pdf_document(record: NormalizedRecord) -> str:
-    parts = [
-        "Document type: diet_pdf",
-        f"Title: {record.title}",
-        f"Category: {record.category or 'diet_pdf'}",
-        f"Notes: {_join_sentences(record.notes)}",
-        f"Content summary: {record.document_text or 'not provided'}",
-        f"Source: {record.source}",
-    ]
-    return "\n".join(parts)
+def _split_text(text: str, chunk_size: int, overlap: int) -> list[str]:
+    normalized = " ".join(text.split()).strip()
+    if not normalized:
+        return []
+    if len(normalized) <= chunk_size:
+        return [normalized]
+
+    chunks: list[str] = []
+    start = 0
+    while start < len(normalized):
+        end = min(start + chunk_size, len(normalized))
+        if end < len(normalized):
+            split_point = normalized.rfind(" ", start, end)
+            if split_point > start + 40:
+                end = split_point
+        chunk = normalized[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= len(normalized):
+            break
+        start = max(end - overlap, start + 1)
+    return chunks
 
 
 def _join_or_default(values: list[str], default: str = "not provided") -> str:

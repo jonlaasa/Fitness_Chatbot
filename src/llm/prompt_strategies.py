@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from langchain_core.documents import Document
+from src.utils.document_display import extract_prompt_excerpt
 
 
 PromptBuilder = Callable[[str, list[Document]], str]
@@ -130,7 +131,17 @@ def _format_context(retrieved_docs: list[Document]) -> str:
         return "No retrieved documents."
     blocks: list[str] = []
     for index, doc in enumerate(retrieved_docs, start=1):
-        title = doc.metadata.get("title") or doc.metadata.get("id") or f"document_{index}"
+        title = (
+            doc.metadata.get("parent_title")
+            or doc.metadata.get("title")
+            or doc.metadata.get("id")
+            or f"document_{index}"
+        )
         source = doc.metadata.get("source", "unknown")
-        blocks.append(f"[Document {index}] {title} | source={source}\n{doc.page_content}")
+        excerpt = extract_prompt_excerpt(doc.page_content, max_chars=900)
+        blocks.append(
+            f"[Chunk {index}] parent_document={title} | source={source} | "
+            f"chunk={doc.metadata.get('chunk_index', index)}/{doc.metadata.get('chunk_count', '?')}\n"
+            f"Chunk text: {excerpt}"
+        )
     return "\n\n".join(blocks)

@@ -5,6 +5,7 @@ from langchain_core.tools import tool
 
 from src.embeddings.factory import build_embedding_model
 from src.retrieval.vector_store import load_chroma_index
+from src.utils.document_display import extract_chunk_preview
 from src.utils.paths import DB_DIR
 
 
@@ -28,18 +29,23 @@ def search_fitness_knowledge(query: str) -> str:
 
     blocks: list[str] = []
     for index, doc in enumerate(docs, start=1):
-        title = doc.metadata.get("title") or doc.metadata.get("id") or f"document_{index}"
+        title = (
+            doc.metadata.get("parent_title")
+            or doc.metadata.get("title")
+            or doc.metadata.get("id")
+            or f"document_{index}"
+        )
         source = doc.metadata.get("source", "unknown")
         metadata = {
             key: value
             for key, value in doc.metadata.items()
             if value not in ("", None)
         }
-        preview = " ".join(doc.page_content.split())[:220].strip()
+        preview = extract_chunk_preview(doc.page_content, max_chars=440)
         blocks.append(
-            f"[Document {index}] {title} | source={source}\n"
+            f"[Chunk {index}] parent={title} | source={source}\n"
             f"Metadata: {metadata}\n"
-            f"Preview: {preview} ..."
+            f"Chunk preview: {preview} ..."
         )
     return "\n\n".join(blocks)
 

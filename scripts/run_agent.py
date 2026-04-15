@@ -32,16 +32,16 @@ def _print_trace(result: dict) -> None:
     for msg in result["messages"]:
         kind = type(msg).__name__
         if kind == "HumanMessage":
-            print(f"Human: {msg.content}\n")
+            print(_safe_console_text(f"Human: {msg.content}\n"))
         elif kind == "AIMessage":
             if getattr(msg, "tool_calls", None):
                 for tool_call in msg.tool_calls:
-                    print(f"AI -> Tool call: {tool_call['name']}({tool_call['args']})\n")
+                    print(_safe_console_text(f"AI -> Tool call: {tool_call['name']}({tool_call['args']})\n"))
             else:
-                print(f"AI (final): {msg.content}\n")
+                print(_safe_console_text(f"AI (final): {msg.content}\n"))
         elif kind == "ToolMessage":
             preview = msg.content[:320] + "..." if len(msg.content) > 320 else msg.content
-            print(f"Tool result [{msg.name}]:\n{preview}\n")
+            print(_safe_console_text(f"Tool result [{msg.name}]:\n{preview}\n"))
 
 
 def _collect_tool_usage(result: dict) -> list[dict]:
@@ -59,18 +59,23 @@ def _collect_tool_usage(result: dict) -> list[dict]:
 
 
 def _print_tool_summary(tool_uses: list[dict]) -> None:
-    print("=" * 80)
+    print(_safe_console_text("=" * 80))
     if not tool_uses:
-        print("Tool usage summary: no tools were used in this run.")
-        print("=" * 80)
-        print()
+        print(_safe_console_text("Tool usage summary: no tools were used in this run."))
+        print(_safe_console_text("=" * 80))
+        print(_safe_console_text(""))
         return
 
-    print(f"Tool usage summary: {len(tool_uses)} tool call(s) detected.")
+    print(_safe_console_text(f"Tool usage summary: {len(tool_uses)} tool call(s) detected."))
     for index, tool_use in enumerate(tool_uses, start=1):
-        print(f"{index}. {tool_use['name']} -> args={tool_use['args']}")
-    print("=" * 80)
-    print()
+        print(_safe_console_text(f"{index}. {tool_use['name']} -> args={tool_use['args']}"))
+    print(_safe_console_text("=" * 80))
+    print(_safe_console_text(""))
+
+
+def _safe_console_text(text: str) -> str:
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    return text.encode(encoding, errors="replace").decode(encoding, errors="replace")
 
 
 def _run_once(question: str, model: str | None) -> None:

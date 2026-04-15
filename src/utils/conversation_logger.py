@@ -35,18 +35,18 @@ def save_conversation(
         f"Type: {conversation_type}",
         f"Question: {question}",
         "",
-        "Retrieved documents:",
+        "Retrieved chunks:",
     ]
     for index, doc in enumerate(retrieved_documents, start=1):
-        txt_lines.append(f"Document {index}:")
-        txt_lines.append(f"- Title: {doc.get('title', 'unknown')}")
+        txt_lines.append(f"Chunk {index}:")
+        txt_lines.append(f"- Parent document: {doc.get('title', 'unknown')}")
         txt_lines.append(f"- Source: {doc.get('source', 'unknown')}")
         metadata = doc.get("metadata")
         if metadata:
             txt_lines.append(f"- Metadata: {json.dumps(metadata, ensure_ascii=False)}")
         preview = doc.get("preview")
         if preview:
-            txt_lines.append(f"- Preview: {preview}")
+            txt_lines.append(f"- Chunk preview: {preview}")
         txt_lines.append("")
     txt_lines.extend(
         [

@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.llm.prompt_strategies import list_prompt_strategies
 from src.retrieval.pipeline import answer_question, get_retrieval_engine
+from src.utils.document_display import extract_chunk_preview
 from src.utils.paths import DB_DIR
 from src.utils.conversation_logger import save_conversation
 
@@ -47,13 +48,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def _build_doc_payload(doc) -> dict:
-    title = doc.metadata.get("title") or doc.metadata.get("id") or "unknown"
+    title = doc.metadata.get("parent_title") or doc.metadata.get("title") or doc.metadata.get("id") or "unknown"
     metadata = {
         key: value
         for key, value in doc.metadata.items()
         if value not in ("", None)
     }
-    preview = " ".join(doc.page_content.split())[:220].strip()
+    preview = extract_chunk_preview(doc.page_content, max_chars=440)
     return {
         "title": title,
         "source": doc.metadata.get("source", "unknown"),
@@ -63,16 +64,19 @@ def _build_doc_payload(doc) -> dict:
 
 
 def _print_retrieved_documents(documents: list) -> list[dict]:
-    print("\nRetrieved documents:")
+    print("\nRetrieved chunks:")
     payloads: list[dict] = []
     for index, doc in enumerate(documents, start=1):
         payload = _build_doc_payload(doc)
         payloads.append(payload)
-        print(f"\nDocument {index}:")
-        print(f"Title: {payload['title']}")
+        chunk_index = payload["metadata"].get("chunk_index", index)
+        chunk_count = payload["metadata"].get("chunk_count", "?")
+        print(f"\nChunk {index}:")
+        print(f"Parent document: {payload['title']}")
         print(f"Source: {payload['source']}")
+        print(f"Chunk position: {chunk_index}/{chunk_count}")
         print(f"Metadata keys: {list(payload['metadata'].keys())}")
-        print(f"Preview: {payload['preview']} ...")
+        print(f"Chunk preview: {payload['preview']} ...")
         print("-" * 80)
     return payloads
 
