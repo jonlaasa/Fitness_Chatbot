@@ -17,3 +17,4 @@ db/**
 !db/.gitkeep
 conversations/**
 !conversations/.gitkeep
+evaluation_results/

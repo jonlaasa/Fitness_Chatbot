@@ -1,9 +1,13 @@
 langchain
 langchain-community
+langgraph
 langchain-huggingface
 langchain-chroma
 langchain-ollama
 sentence-transformers
 gdown
 numexpr
+pandas
 pypdf
+datasets
+ragas

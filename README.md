@@ -176,16 +176,16 @@ PDF titles are cleaned before indexing so labels such as `Copia de ...` do not a
 
 ### 7.2 Document design
 
-This project follows the explicit semantic unit strategy:
+This project follows the explicit semantic unit strategy at the source-record level:
 
 - 1 exercise = 1 document
 - 1 dish = 1 document
 
-No generic chunking is used. This is important academically because the document boundaries are easy to justify. Each record is already a meaningful unit of knowledge, so chunking would add complexity without clear benefit in this first iteration.
+Those semantic documents are then split into short retrieval chunks for the vector index. This keeps the original academic unit easy to justify while improving retrieval precision. Each chunk stores metadata about its parent document, so the system can show both the best-matching chunk and the source document it came from.
 
 The document builder converts normalized records into structured natural-language documents for embedding, while preserving metadata separately for retrieval output and later filtering.
 
-The same principle is applied to the PDF source:
+The same principle is applied to the PDF source before chunking:
 
 - 1 PDF = 1 document
 
@@ -245,7 +245,20 @@ Why `k=3`:
 - it is easy to justify and debug
 - it is appropriate for a first lightweight baseline
 
-When documents are shown in the CLI, the system prints not only the title but also relevant metadata keys and a short content preview. This makes retrieval behavior easier to inspect and aligns with the didactic style used in class notebooks.
+The repository now supports two retrieval modes:
+
+- `similarity`
+  - standard cosine-similarity retrieval
+- `mmr`
+  - Maximal Marginal Relevance retrieval, which tries to balance relevance and diversity among the retrieved chunks
+
+For MMR, the current CLI exposes:
+
+- `k = 3`
+- `fetch_k = 20`
+- `lambda_mult = 1.0`
+
+When documents are shown in the CLI, the system prints the parent title, relevant metadata, and a short preview of the retrieved chunk content. This makes retrieval behavior easier to inspect and aligns with the didactic style used in class notebooks.
 
 ### 7.7 LLM layer
 
@@ -277,6 +290,17 @@ Included tools:
   - evaluates simple expressions such as BMI, calorie arithmetic, macro totals, or training volume
 
 This design makes sense for the project because one tool retrieves domain knowledge and the other performs useful numeric support tasks. It stays small, explainable, and aligned with a first local academic iteration.
+
+### 7.7.2 Guardrails
+
+The repository also includes a modular guardrails layer designed for later evaluation experiments. This layer is inspired by the class notebook approach, but it is integrated directly into the local RAG pipeline using the current modular structure.
+
+The first guardrail version includes:
+
+- an input scope guardrail that blocks clearly out-of-domain questions before retrieval
+- a structured output guardrail based on Pydantic models so the final answer follows a controlled schema
+
+For future evaluation, the intended baseline is `few-shot`. That means guardrail experiments are run on top of the same retrieval pipeline while keeping `few-shot` as the reference prompting strategy.
 
 Besides the standard RAG pipeline, the repository includes a simple local agent inspired by the class example. This agent is built with:
 
@@ -515,6 +539,24 @@ Single question with a specific prompt strategy:
 .\.venv\Scripts\python scripts\query_rag.py --strategy zero-shot --question "Which exercises target the glutes?"
 ```
 
+Single question with guardrails enabled. If no strategy is passed, the system uses `few-shot` as the guardrail baseline:
+
+```powershell
+.\.venv\Scripts\python scripts\query_rag.py --guardrails --question "Which exercises target the glutes?"
+```
+
+Single question with MMR retrieval:
+
+```powershell
+.\.venv\Scripts\python scripts\query_rag.py --strategy few-shot --retrieval-mode mmr --question "Which exercises target the glutes?"
+```
+
+Example of an out-of-scope query blocked by guardrails:
+
+```powershell
+.\.venv\Scripts\python scripts\query_rag.py --guardrails --question "Who won the last football world cup?"
+```
+
 Compare all prompt strategies for the same question:
 
 ```powershell
@@ -525,6 +567,59 @@ Run the local agent with tools:
 
 ```powershell
 .\.venv\Scripts\python scripts\run_agent.py --question "Find exercises for glutes and calculate the BMI for 80 kg and 1.78 m"
+```
+
+Run the guarded agent variant:
+
+```powershell
+.\.venv\Scripts\python scripts\run_guarded_agent.py --question "Find exercises for glutes and calculate the BMI for 80 kg and 1.78 m"
+```
+
+Run a RAGAS evaluation pass over the prepared CSV:
+
+```powershell
+.\.venv\Scripts\python scripts\evaluate_ragas.py --max-rows 1
+```
+
+Notes about evaluation:
+
+- the evaluation CSV is `rag_eval.csv`
+- the default baseline is `few_shot_baseline`
+- the script evaluates the currently integrated variants: baseline, guardrails, MMR, router agent, and guarded agent
+- results are saved under `evaluation_results/` as both `ragas_summary.csv` and `ragas_summary.md`
+- the detailed per-question outputs are stored inside each variant folder
+- the script first attempts RAGAS scoring with a local Ollama evaluator and, if a metric times out or fails to parse, it fills that score with a lightweight local fallback so the final comparison table is always complete on a CPU-only laptop
+
+Recommended incremental evaluation workflow:
+
+1. start with one variant, one metric, and one row
+
+```powershell
+.\.venv\Scripts\python scripts\evaluate_ragas.py --variants few_shot_baseline --metrics answer_relevancy --max-rows 1
+```
+
+2. continue on the same run directory and add another metric
+
+```powershell
+.\.venv\Scripts\python scripts\evaluate_ragas.py --variants few_shot_baseline --metrics factual_correctness --max-rows 1 --resume-run-dir evaluation_results/ragas_eval_YYYYMMDD_HHMMSS
+```
+
+3. evaluate one complete variant before moving to the next one
+
+```powershell
+.\.venv\Scripts\python scripts\evaluate_ragas.py --variants few_shot_mmr --metrics answer_relevancy faithfulness context_recall factual_correctness --max-rows 1
+```
+
+Practical time note:
+
+- on a CPU-only laptop, one metric for one variant and one row can still take a few minutes
+- one full pass over all variants, all metrics, and multiple rows can take a long time
+- for that reason, the recommended workflow is to evaluate in parts and progressively complete the same summary table
+
+Run the LangGraph router agent:
+
+```powershell
+.\.venv\Scripts\python scripts\run_router_agent.py --question "Which exercises target the glutes?"
 ```
 
 Saved conversation evidence:

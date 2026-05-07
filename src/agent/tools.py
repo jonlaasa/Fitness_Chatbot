@@ -14,6 +14,11 @@ def _get_vector_store():
     return load_chroma_index(DB_DIR, embedding_model)
 
 
+def search_fitness_documents(query: str, k: int = 3) -> list:
+    vector_store = _get_vector_store()
+    return vector_store.similarity_search(query, k=k)
+
+
 @tool
 def search_fitness_knowledge(query: str) -> str:
     """Search the local fitness and nutrition knowledge base.
@@ -22,8 +27,7 @@ def search_fitness_knowledge(query: str) -> str:
     metadata from the local Chroma vector database.
     """
 
-    vector_store = _get_vector_store()
-    docs = vector_store.similarity_search(query, k=3)
+    docs = search_fitness_documents(query, k=3)
     if not docs:
         return "No relevant documents were found in the local knowledge base."
 

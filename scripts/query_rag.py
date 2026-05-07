@@ -35,9 +35,20 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--strategy",
-        default="zero-shot",
+        default=None,
         choices=[strategy.name for strategy in list_prompt_strategies()],
         help="Prompt engineering strategy to apply on top of the retrieved context.",
+    )
+    parser.add_argument(
+        "--guardrails",
+        action="store_true",
+        help="Enable modular guardrails on top of the retrieval pipeline.",
+    )
+    parser.add_argument(
+        "--retrieval-mode",
+        default="similarity",
+        choices=["similarity", "mmr"],
+        help="Retrieval strategy to use before generation.",
     )
     parser.add_argument(
         "--save-dir",
@@ -85,18 +96,29 @@ def _run_single_question(
     question: str,
     db_path: str,
     model: str | None,
-    strategy: str,
+    strategy: str | None,
     save_dir: str,
+    guardrails: bool,
+    retrieval_mode: str,
 ) -> None:
+    effective_strategy = strategy or ("few-shot" if guardrails else "zero-shot")
     result = answer_question(
         question=question,
         db_path=db_path,
         model_name=model,
         k=3,
-        prompt_strategy=strategy,
+        prompt_strategy=effective_strategy,
+        retrieval_mode=retrieval_mode,
+        use_guardrails=guardrails,
     )
-    print(f"\nPrompt strategy: {strategy}")
-    retrieved_payloads = _print_retrieved_documents(result.retrieved_documents)
+    print(f"\nPrompt strategy: {effective_strategy}")
+    print(f"Guardrails: {'enabled' if guardrails else 'disabled'}")
+    print(f"Retrieval mode: {result.retrieval_mode} {result.retrieval_kwargs}")
+    if result.blocked_by_guardrails:
+        retrieved_payloads = []
+        print(f"Guardrail scope block: {result.guardrail_details.get('scope_reason', '')}")
+    else:
+        retrieved_payloads = _print_retrieved_documents(result.retrieved_documents)
     print("\nAnswer:")
     print(result.answer)
     save_path = save_conversation(
@@ -105,7 +127,13 @@ def _run_single_question(
         answer=result.answer,
         retrieved_documents=retrieved_payloads,
         output_dir=save_dir,
-        extra={"strategy": strategy},
+        extra={
+            "strategy": effective_strategy,
+            "guardrails": guardrails,
+            "retrieval_mode": result.retrieval_mode,
+            "retrieval_kwargs": result.retrieval_kwargs or {},
+            "guardrail_details": result.guardrail_details or {},
+        },
     )
     print(f"\nConversation saved to: {save_path}")
 
@@ -113,15 +141,23 @@ def _run_single_question(
 def _run_interactive(
     db_path: str,
     model: str | None,
-    strategy: str,
+    strategy: str | None,
     save_dir: str,
+    guardrails: bool,
+    retrieval_mode: str,
 ) -> None:
-    print(f"Local RAG assistant ready with strategy '{strategy}'. Type 'exit' to quit.")
+    effective_strategy = strategy or ("few-shot" if guardrails else "zero-shot")
+    print(
+        f"Local RAG assistant ready with strategy '{effective_strategy}' "
+        f"and guardrails {'enabled' if guardrails else 'disabled'}. Type 'exit' to quit."
+    )
     engine = get_retrieval_engine(
         db_path=db_path,
         model_name=model,
         k=3,
-        prompt_strategy=strategy,
+        prompt_strategy=effective_strategy,
+        retrieval_mode=retrieval_mode,
+        use_guardrails=guardrails,
     )
     while True:
         question = input("\nQuestion: ").strip()
@@ -130,8 +166,14 @@ def _run_interactive(
         if not question:
             continue
         result = engine.answer(question)
-        print(f"\nPrompt strategy: {strategy}")
-        retrieved_payloads = _print_retrieved_documents(result.retrieved_documents)
+        print(f"\nPrompt strategy: {effective_strategy}")
+        print(f"Guardrails: {'enabled' if guardrails else 'disabled'}")
+        print(f"Retrieval mode: {result.retrieval_mode} {result.retrieval_kwargs}")
+        if result.blocked_by_guardrails:
+            retrieved_payloads = []
+            print(f"Guardrail scope block: {result.guardrail_details.get('scope_reason', '')}")
+        else:
+            retrieved_payloads = _print_retrieved_documents(result.retrieved_documents)
         print("\nAnswer:")
         print(result.answer)
         save_path = save_conversation(
@@ -140,7 +182,13 @@ def _run_interactive(
             answer=result.answer,
             retrieved_documents=retrieved_payloads,
             output_dir=save_dir,
-            extra={"strategy": strategy},
+            extra={
+                "strategy": effective_strategy,
+                "guardrails": guardrails,
+                "retrieval_mode": result.retrieval_mode,
+                "retrieval_kwargs": result.retrieval_kwargs or {},
+                "guardrail_details": result.guardrail_details or {},
+            },
         )
         print(f"\nConversation saved to: {save_path}")
 
@@ -154,6 +202,8 @@ def main() -> None:
             args.model,
             args.strategy,
             args.save_dir,
+            args.guardrails,
+            args.retrieval_mode,
         )
     else:
         _run_interactive(
@@ -161,6 +211,8 @@ def main() -> None:
             args.model,
             args.strategy,
             args.save_dir,
+            args.guardrails,
+            args.retrieval_mode,
         )
 
 
