@@ -5,43 +5,33 @@ from dataclasses import dataclass
 from langchain_ollama import ChatOllama
 
 from src.guardrails.schemas import GuardedRagAnswer, ScopeDecision
+from src.guardrails.vendor import load_guardrails_vendor
 from src.llm.prompt_strategies import get_prompt_strategy
 
 
 DEFAULT_GUARDRAIL_API_BASE = "http://localhost:11434"
-ALLOWED_KEYWORDS = {
+VALID_TOPICS = [
     "exercise",
-    "exercises",
-    "workout",
     "training",
-    "train",
     "fitness",
-    "muscle",
-    "glute",
-    "glutes",
-    "chest",
-    "shoulder",
-    "back",
+    "sports science",
     "nutrition",
     "diet",
-    "healthy",
-    "habit",
-    "habits",
-    "calorie",
-    "calories",
-    "protein",
-    "carbs",
-    "fat",
-    "meal",
-    "ingredient",
-    "ingredients",
-    "supplement",
+    "healthy habits",
     "supplements",
     "bmi",
-    "routine",
-    "strength",
-    "cardio",
-}
+    "body mass index",
+]
+INVALID_TOPICS = [
+    "politics",
+    "programming",
+    "software development",
+    "cinema",
+    "movies",
+    "weather",
+    "finance",
+    "geography",
+]
 OBVIOUS_OUT_OF_SCOPE_TERMS = {
     "world cup",
     "football",
@@ -56,6 +46,38 @@ OBVIOUS_OUT_OF_SCOPE_TERMS = {
     "film",
     "weather",
     "stock market",
+}
+ALLOWED_KEYWORDS = {
+    "exercise",
+    "exercises",
+    "workout",
+    "training",
+    "fitness",
+    "muscle",
+    "glute",
+    "glutes",
+    "chest",
+    "shoulder",
+    "back",
+    "nutrition",
+    "diet",
+    "habit",
+    "habits",
+    "calorie",
+    "calories",
+    "protein",
+    "carbs",
+    "fat",
+    "meal",
+    "ingredient",
+    "ingredients",
+    "supplement",
+    "supplements",
+    "bmi",
+    "body mass index",
+    "routine",
+    "strength",
+    "cardio",
 }
 
 
@@ -77,6 +99,7 @@ class GuardrailService:
         self.api_base = api_base
         self.scope_model = self._build_chat_model(temperature=0)
         self.answer_model = self._build_chat_model(temperature=0.1)
+        self.topic_validator = self._build_topic_validator()
 
     def run(
         self,
@@ -126,6 +149,31 @@ class GuardrailService:
         heuristic_decision = _heuristic_scope_decision(question)
         if heuristic_decision is not None:
             return heuristic_decision
+
+        if self.topic_validator is not None:
+            try:
+                validation_result = self.topic_validator.validate(question, {})
+                result_type = type(validation_result).__name__
+                if result_type == "PassResult":
+                    return ScopeDecision(
+                        in_scope=True,
+                        reason=(
+                            "Guardrails RestrictToTopic accepted the question as part of the "
+                            "fitness, training, nutrition, or supplements domain."
+                        ),
+                    )
+                return ScopeDecision(
+                    in_scope=False,
+                    reason=getattr(validation_result, "error_message", "The question is outside the configured domain."),
+                )
+            except Exception as exc:
+                return ScopeDecision(
+                    in_scope=True,
+                    reason=(
+                        "RestrictToTopic could not validate the query locally, "
+                        f"so the fallback allowed it. Details: {exc}"
+                    ),
+                )
 
         try:
             scope_chain = self.scope_model.with_structured_output(ScopeDecision)
@@ -180,7 +228,6 @@ class GuardrailService:
                 fallback_reason="Structured guardrail validation failed.",
             )
 
-
     def _build_chat_model(self, temperature: float) -> ChatOllama:
         return ChatOllama(
             base_url=self.api_base,
@@ -191,17 +238,81 @@ class GuardrailService:
             seed=42,
         )
 
+    def _build_topic_validator(self):
+        vendor_load = load_guardrails_vendor()
+        if not vendor_load.available or vendor_load.restrict_to_topic_class is None:
+            return None
+
+        try:
+            return vendor_load.restrict_to_topic_class(
+                valid_topics=VALID_TOPICS,
+                invalid_topics=INVALID_TOPICS,
+                device="cpu",
+                disable_classifier=True,
+                disable_llm=False,
+                llm_callable=self._topic_llm_callable,
+                on_fail="exception",
+                use_local=False,
+            )
+        except Exception:
+            return None
+
+    def _topic_llm_callable(self, text: str, topics: list[str]) -> list[str]:
+        result = self.scope_model.invoke(
+            [
+                (
+                    "system",
+                    "You are a topic validator used by Guardrails RestrictToTopic. "
+                    "Return only the candidate topics that are clearly present in the user question. "
+                    "Reply as a comma-separated list using the exact topic labels. "
+                    "If none are clearly present, reply only with: none",
+                ),
+                (
+                    "human",
+                    "Candidate topics:\n"
+                    f"{topics}\n\n"
+                    "User question:\n"
+                    f"{text}",
+                ),
+            ]
+        )
+        content = getattr(result, "content", "") or ""
+        matched_topics = []
+        normalized_topics = {topic.lower(): topic for topic in topics}
+        raw_tokens = [
+            token.strip()
+            for token in content.replace("\n", ",").split(",")
+            if token.strip()
+        ]
+        for topic in raw_tokens:
+            if not topic:
+                continue
+            normalized = topic.lower().strip()
+            if normalized == "none":
+                continue
+            if normalized in normalized_topics:
+                matched_topics.append(normalized_topics[normalized])
+        return matched_topics
+
 
 def _heuristic_scope_decision(question: str) -> ScopeDecision | None:
     lowered = question.lower()
-    has_allowed_keyword = any(keyword in lowered for keyword in ALLOWED_KEYWORDS)
     matched_out_of_scope = [term for term in OBVIOUS_OUT_OF_SCOPE_TERMS if term in lowered]
-    if matched_out_of_scope and not has_allowed_keyword:
+    if matched_out_of_scope:
         return ScopeDecision(
             in_scope=False,
             reason=(
                 "The question matches an obvious out-of-scope topic: "
                 + ", ".join(matched_out_of_scope)
+            ),
+        )
+    matched_allowed = [term for term in ALLOWED_KEYWORDS if term in lowered]
+    if matched_allowed:
+        return ScopeDecision(
+            in_scope=True,
+            reason=(
+                "The question contains clear domain keywords related to the assistant scope: "
+                + ", ".join(sorted(matched_allowed))
             ),
         )
     return None
