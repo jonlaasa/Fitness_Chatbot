@@ -83,6 +83,8 @@ ALLOWED_KEYWORDS = {
 
 @dataclass(slots=True)
 class GuardrailRunResult:
+    # Resultado intermedio del guardrail: permite saber si hubo bloqueo
+    # y qué respuesta validada terminó devolviéndose.
     blocked: bool
     answer: str
     scope_decision: ScopeDecision | None
@@ -95,6 +97,8 @@ class GuardrailService:
         model_name: str,
         api_base: str = DEFAULT_GUARDRAIL_API_BASE,
     ) -> None:
+        # Usamos dos modelos ChatOllama sobre el mismo LLM:
+        # uno más "frío" para clasificar alcance y otro para estructurar la salida.
         self.model_name = model_name
         self.api_base = api_base
         self.scope_model = self._build_chat_model(temperature=0)
@@ -108,6 +112,8 @@ class GuardrailService:
         prompt_strategy: str = "few-shot",
         scope_decision: ScopeDecision | None = None,
     ) -> GuardrailRunResult:
+        # Punto de entrada principal del guardrail dentro del RAG:
+        # primero valida dominio y luego controla la salida final.
         scope_decision = scope_decision or self.check_scope(question)
         if not scope_decision.in_scope:
             blocked_answer = (
@@ -127,6 +133,8 @@ class GuardrailService:
             prompt_strategy=prompt_strategy,
         )
         final_answer = validated_output.answer.strip()
+        # Si la validación estructurada indica que la respuesta no está bien
+        # soportada por el contexto, devolvemos una salida más conservadora.
         if not final_answer:
             final_answer = "Not enough information in the retrieved documents."
         if not validated_output.grounded_in_context:
@@ -146,12 +154,14 @@ class GuardrailService:
         )
 
     def check_scope(self, question: str) -> ScopeDecision:
+        # Primero aplicamos heurísticas baratas para cortar rápido los casos claros.
         heuristic_decision = _heuristic_scope_decision(question)
         if heuristic_decision is not None:
             return heuristic_decision
 
         if self.topic_validator is not None:
             try:
+                # RestrictToTopic es la barrera principal de entrada en esta versión.
                 validation_result = self.topic_validator.validate(question, {})
                 result_type = type(validation_result).__name__
                 if result_type == "PassResult":
@@ -167,6 +177,8 @@ class GuardrailService:
                     reason=getattr(validation_result, "error_message", "The question is outside the configured domain."),
                 )
             except Exception as exc:
+                # Si el validador externo falla, permitimos seguir y dejamos
+                # constancia del motivo para no romper todo el pipeline.
                 return ScopeDecision(
                     in_scope=True,
                     reason=(
@@ -176,6 +188,7 @@ class GuardrailService:
                 )
 
         try:
+            # Fallback final: clasificación estructurada usando el propio LLM local.
             scope_chain = self.scope_model.with_structured_output(ScopeDecision)
             return scope_chain.invoke(
                 [
@@ -206,6 +219,8 @@ class GuardrailService:
         retrieved_docs: list,
         prompt_strategy: str = "few-shot",
     ) -> GuardedRagAnswer:
+        # La respuesta final se vuelve a pasar por el modelo en formato estructurado
+        # para comprobar si realmente está apoyada en el contexto recuperado.
         base_prompt = get_prompt_strategy(prompt_strategy).builder(question, retrieved_docs)
         answer_chain = self.answer_model.with_structured_output(GuardedRagAnswer)
         try:
@@ -229,6 +244,7 @@ class GuardrailService:
             )
 
     def _build_chat_model(self, temperature: float) -> ChatOllama:
+        # Parámetros comunes para todas las llamadas locales del guardrail.
         return ChatOllama(
             base_url=self.api_base,
             model=self.model_name,
@@ -239,6 +255,8 @@ class GuardrailService:
         )
 
     def _build_topic_validator(self):
+        # El validador RestrictToTopic se carga desde una ruta corta externa
+        # para evitar problemas de instalación en Windows + OneDrive.
         vendor_load = load_guardrails_vendor()
         if not vendor_load.available or vendor_load.restrict_to_topic_class is None:
             return None
@@ -258,6 +276,8 @@ class GuardrailService:
             return None
 
     def _topic_llm_callable(self, text: str, topics: list[str]) -> list[str]:
+        # RestrictToTopic permite usar un callable propio como clasificador.
+        # Aquí reutilizamos el LLM local para decidir qué temas están presentes.
         result = self.scope_model.invoke(
             [
                 (
@@ -296,6 +316,7 @@ class GuardrailService:
 
 
 def _heuristic_scope_decision(question: str) -> ScopeDecision | None:
+    # Reglas rápidas para reducir latencia y evitar llamadas innecesarias al modelo.
     lowered = question.lower()
     matched_out_of_scope = [term for term in OBVIOUS_OUT_OF_SCOPE_TERMS if term in lowered]
     if matched_out_of_scope:

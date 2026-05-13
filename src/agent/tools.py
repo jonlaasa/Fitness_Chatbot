@@ -10,11 +10,13 @@ from src.utils.paths import DB_DIR
 
 
 def _get_vector_store():
+    # Carga la base vectorial local que comparten el RAG y el agente.
     embedding_model = build_embedding_model()
     return load_chroma_index(DB_DIR, embedding_model)
 
 
 def search_fitness_documents(query: str, k: int = 3) -> list:
+    # Función interna reutilizable para recuperar documentos desde Chroma.
     vector_store = _get_vector_store()
     return vector_store.similarity_search(query, k=k)
 
@@ -31,6 +33,8 @@ def search_fitness_knowledge(query: str) -> str:
     if not docs:
         return "No relevant documents were found in the local knowledge base."
 
+    # La tool devuelve un resumen legible por el agente, no el documento completo,
+    # para no saturar contexto ni consola.
     blocks: list[str] = []
     for index, doc in enumerate(docs, start=1):
         title = (
@@ -64,6 +68,7 @@ def fitness_calculator(expression: str) -> str:
     """
 
     try:
+        # numexpr permite evaluar expresiones sencillas de forma cómoda y rápida.
         result = numexpr.evaluate(expression)
         return str(float(result))
     except Exception as exc:
@@ -71,4 +76,5 @@ def fitness_calculator(expression: str) -> str:
 
 
 def get_agent_tools():
+    # Punto único para exponer las tools disponibles al agente.
     return [search_fitness_knowledge, fitness_calculator]

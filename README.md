@@ -104,10 +104,21 @@ src/
   agent/
     executor.py
     tools.py
+  evaluation/
+    dataset.py
+    ragas_runner.py
+    runner.py
+    variants.py
   ingestion/
     diets.py
     exercises.py
     nutrition.py
+  guarded_agent/
+    executor.py
+  guardrails/
+    schemas.py
+    service.py
+    vendor.py
   processing/
     schemas.py
     jsonl.py
@@ -117,6 +128,9 @@ src/
   retrieval/
     vector_store.py
     pipeline.py
+  router_agent/
+    graph.py
+    schemas.py
   llm/
     prompts.py
     local_model.py
@@ -297,7 +311,7 @@ The repository also includes a modular guardrails layer designed for later evalu
 
 The first guardrail version includes:
 
-- an input scope guardrail that blocks clearly out-of-domain questions before retrieval
+- an input scope guardrail based on Guardrails AI `RestrictToTopic`, combined with lightweight heuristic checks
 - a structured output guardrail based on Pydantic models so the final answer follows a controlled schema
 
 For future evaluation, the intended baseline is `few-shot`. That means guardrail experiments are run on top of the same retrieval pipeline while keeping `few-shot` as the reference prompting strategy.
@@ -434,6 +448,16 @@ If needed:
 ```powershell
 ollama pull phi3
 ```
+
+### 12.4 Optional guardrails validator setup
+
+If you want to use the Guardrails AI topic validator exactly as configured in this project, run:
+
+```powershell
+.\.venv\Scripts\python scripts\install_guardrails_validator.py
+```
+
+This installs the validator in a short external path to avoid Windows + OneDrive path-length issues.
 
 ## 13. How to run locally
 
@@ -575,6 +599,12 @@ Run the guarded agent variant:
 .\.venv\Scripts\python scripts\run_guarded_agent.py --question "Find exercises for glutes and calculate the BMI for 80 kg and 1.78 m"
 ```
 
+Run the router agent variant:
+
+```powershell
+.\.venv\Scripts\python scripts\run_router_agent.py --question "Which exercises target the glutes?"
+```
+
 Run a RAGAS evaluation pass over the prepared CSV:
 
 ```powershell
@@ -615,12 +645,6 @@ Practical time note:
 - on a CPU-only laptop, one metric for one variant and one row can still take a few minutes
 - one full pass over all variants, all metrics, and multiple rows can take a long time
 - for that reason, the recommended workflow is to evaluate in parts and progressively complete the same summary table
-
-Run the LangGraph router agent:
-
-```powershell
-.\.venv\Scripts\python scripts\run_router_agent.py --question "Which exercises target the glutes?"
-```
 
 Saved conversation evidence:
 

@@ -11,6 +11,8 @@ from src.guardrails.service import GuardrailService
 
 @dataclass(slots=True)
 class GuardedAgentResult:
+    # Resultado final del agente guardado, incluyendo trazas útiles
+    # para depuración, consola y guardado de conversaciones.
     blocked: bool
     scope_reason: str
     raw_agent_result: dict | None
@@ -25,6 +27,10 @@ def run_guarded_agent_once(
     model_name: str | None = None,
     use_output_guard: bool = False,
 ) -> GuardedAgentResult:
+    # Flujo del agente con guardrails:
+    # 1. comprobar si la pregunta está dentro del dominio
+    # 2. ejecutar el agente con tools
+    # 3. opcionalmente limpiar también la salida final
     resolved_model_name = model_name or resolve_agent_model()
     guardrail_service = GuardrailService(resolved_model_name)
 
@@ -70,6 +76,8 @@ def run_guarded_agent_once(
 
 
 def _collect_tool_usage(result: dict) -> list[dict]:
+    # Extrae qué tools llamó realmente el agente para poder enseñarlo en consola
+    # y guardarlo luego como evidencia.
     tool_uses: list[dict] = []
     for msg in result["messages"]:
         if type(msg).__name__ == "AIMessage" and getattr(msg, "tool_calls", None):
@@ -84,6 +92,7 @@ def _collect_tool_usage(result: dict) -> list[dict]:
 
 
 def _extract_final_answer(result: dict) -> str:
+    # El último AIMessage sin tool_calls es la respuesta final del agente.
     final_answer = ""
     for msg in result["messages"]:
         if type(msg).__name__ == "AIMessage" and not getattr(msg, "tool_calls", None):
@@ -92,6 +101,7 @@ def _extract_final_answer(result: dict) -> str:
 
 
 def _guard_agent_output(model_name: str, question: str, raw_answer: str) -> str:
+    # Segunda barrera opcional: revisar la salida del agente antes de devolverla.
     guard_model = ChatOllama(
         base_url="http://localhost:11434",
         model=model_name,

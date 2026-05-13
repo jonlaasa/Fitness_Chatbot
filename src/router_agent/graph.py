@@ -38,6 +38,9 @@ def build_router_graph(
     db_path: str | None = None,
     prompt_strategy: str = "few-shot",
 ):
+    # Este grafo separa el flujo en dos dominios:
+    # - fitness: ejercicios, técnica, entrenamiento
+    # - nutrition: comidas, ingredientes, macros, suplementos
     vector_store = load_chroma_index(db_path or DB_DIR, build_embedding_model())
     routing_model = _build_chat_model(model_name=model_name, temperature=0)
     generation_model = _build_chat_model(model_name=model_name, temperature=0.1)
@@ -59,6 +62,7 @@ def build_router_graph(
     prompt_builder = get_prompt_strategy(prompt_strategy).builder
 
     def router_node(state: RouterState) -> RouterState:
+        # Decide a qué rama debe ir la consulta antes de recuperar contexto.
         user_message = HumanMessage(state["user_query"])
         decision = router_chain.invoke([ROUTER_PROMPT, *state["messages"], user_message])
         return {
@@ -68,15 +72,20 @@ def build_router_graph(
         }
 
     def pick_retriever(state: RouterState) -> Literal["retrieve_fitness", "retrieve_nutrition"]:
+        # Edge condicional de LangGraph: el router decide el siguiente nodo.
         return "retrieve_fitness" if state["domain"] == "fitness" else "retrieve_nutrition"
 
     def retrieve_fitness(state: RouterState) -> RouterState:
+        # Retrieval especializado solo sobre chunks de ejercicios.
         return {"documents": fitness_retriever.invoke(state["user_query"])}
 
     def retrieve_nutrition(state: RouterState) -> RouterState:
+        # Retrieval especializado sobre platos y PDFs de dieta/suplementación.
         return {"documents": nutrition_retriever.invoke(state["user_query"])}
 
     def generate_answer(state: RouterState) -> RouterState:
+        # La generación final reutiliza la misma lógica de prompting del proyecto,
+        # pero adaptando el system prompt al dominio elegido.
         system_prompt = FITNESS_PROMPT if state["domain"] == "fitness" else NUTRITION_PROMPT
         prompt = prompt_builder(state["user_query"], state["documents"])
         response = generation_model.invoke([system_prompt, *state["messages"], HumanMessage(prompt)])
@@ -99,6 +108,7 @@ def build_router_graph(
 
 
 def _build_chat_model(model_name: str | None, temperature: float) -> ChatOllama:
+    # Constructor común para los nodos del router y de generación.
     return ChatOllama(
         base_url="http://localhost:11434",
         model=model_name or resolve_ollama_model(),

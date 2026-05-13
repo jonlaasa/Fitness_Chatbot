@@ -21,11 +21,13 @@ from src.embeddings.factory import build_embedding_model
 
 @dataclass(slots=True)
 class RagasRunOutput:
+    # Devuelve tanto el resumen agregado como el detalle por pregunta.
     summary: dict
     detailed_results: pd.DataFrame
 
 
 def list_eval_metrics() -> list[str]:
+    # Métricas que comparamos en esta iteración del proyecto.
     return [
         "answer_relevancy",
         "faithfulness",
@@ -40,6 +42,8 @@ def evaluate_predictions_with_ragas(
     embeddings_model: str | None = None,
     metric_names: list[str] | None = None,
 ) -> RagasRunOutput:
+    # Preparamos el dataset en un formato ligero porque RAGAS + Ollama en CPU
+    # puede disparar mucho el tiempo si pasamos contextos largos.
     prepared_rows = [_prepare_eval_row(row) for row in eval_dataset_rows]
     base_df = pd.DataFrame(
         {
@@ -71,6 +75,8 @@ def evaluate_predictions_with_ragas(
         local_embeddings_model = build_embedding_model()
         evaluator_embeddings = LangchainEmbeddingsWrapper(local_embeddings_model)
 
+    # Cada métrica se ejecuta por separado para poder controlar mejor fallos,
+    # timeouts y reintentos en un entorno local limitado.
     metric_builders = {
         "answer_relevancy": lambda: AnswerRelevancy(
             llm=evaluator_llm,
@@ -106,6 +112,8 @@ def evaluate_predictions_with_ragas(
             source_column = f"{metric_name}_source"
             if source_column not in detailed_df.columns:
                 detailed_df[source_column] = "ragas"
+            # Si RAGAS no consigue producir una métrica, completamos la celda
+            # con una aproximación local para no dejar la tabla vacía.
             _fill_metric_with_fallback(
                 df=detailed_df,
                 score_column=score_column,
@@ -125,6 +133,7 @@ def _evaluate_single_metric(
     evaluator_llm,
     evaluator_embeddings,
 ) -> pd.DataFrame:
+    # Ejecuta una sola métrica de RAGAS con timeouts conservadores.
     dataset = EvaluationDataset.from_list(prepared_rows)
     try:
         result = evaluate(
@@ -146,6 +155,8 @@ def _evaluate_single_metric(
             selected_columns.append(f"{metric_name}_source")
         return metric_df[selected_columns]
     except Exception:
+        # Si RAGAS falla por parseo o timeout, devolvemos la estructura mínima
+        # para que el runner pueda rellenarla luego con fallback.
         return pd.DataFrame(
             {
                 "user_input": [row["user_input"] for row in prepared_rows],
@@ -156,6 +167,7 @@ def _evaluate_single_metric(
 
 
 def _prepare_eval_row(row: dict) -> dict:
+    # Reducimos longitud para que la evaluación sea asumible en CPU local.
     truncated_contexts = [
         _truncate_text(context, max_chars=280)
         for context in row["retrieved_contexts"][:3]
@@ -169,6 +181,7 @@ def _prepare_eval_row(row: dict) -> dict:
 
 
 def _truncate_text(text: str, max_chars: int) -> str:
+    # Normaliza espacios y corta sin romper el formato general.
     normalized = " ".join((text or "").split())
     if len(normalized) <= max_chars:
         return normalized
@@ -176,6 +189,7 @@ def _truncate_text(text: str, max_chars: int) -> str:
 
 
 def _find_metric_column(df: pd.DataFrame, metric_name: str) -> str | None:
+    # Algunas métricas de RAGAS añaden sufijos al nombre de la columna.
     if metric_name in df.columns:
         return metric_name
     for column in df.columns:
@@ -185,6 +199,7 @@ def _find_metric_column(df: pd.DataFrame, metric_name: str) -> str | None:
 
 
 def _safe_mean(df: pd.DataFrame, column: str | None) -> float | None:
+    # Calcula una media segura ignorando valores no numéricos o vacíos.
     if not column or column not in df.columns:
         return None
     series = pd.to_numeric(df[column], errors="coerce")
@@ -200,6 +215,7 @@ def _fill_metric_with_fallback(
     metric_name: str,
     embeddings_model,
 ) -> None:
+    # Sustituye solo las celdas que RAGAS no ha podido resolver.
     scores = pd.to_numeric(df[score_column], errors="coerce") if score_column in df.columns else pd.Series(dtype=float)
     if score_column not in df.columns:
         df[score_column] = None
@@ -219,6 +235,8 @@ def _fill_metric_with_fallback(
 
 
 def _fallback_metric_score(row: pd.Series, metric_name: str, embeddings_model) -> float:
+    # Fallback ligero y reproducible para mantener la comparación operativa
+    # cuando el evaluador local no llega a tiempo.
     question = str(row.get("user_input", ""))
     response = str(row.get("response", ""))
     reference = str(row.get("reference", ""))
@@ -239,6 +257,7 @@ def _fallback_metric_score(row: pd.Series, metric_name: str, embeddings_model) -
 
 
 def _cosine_similarity_from_texts(text_a: str, text_b: str, embeddings_model) -> float:
+    # Similaridad semántica simple usando embeddings para aproximar cercanía.
     try:
         vector_a = np.array(embeddings_model.embed_query(text_a), dtype=float)
         vector_b = np.array(embeddings_model.embed_query(text_b), dtype=float)
@@ -253,6 +272,7 @@ def _cosine_similarity_from_texts(text_a: str, text_b: str, embeddings_model) ->
 
 
 def _keyword_overlap(reference: str, response: str) -> float:
+    # Solución muy simple para estimar cuánto contenido relevante se comparte.
     reference_tokens = {token.strip(".,;:!?()[]{}\"'").lower() for token in reference.split() if token.strip()}
     response_tokens = {token.strip(".,;:!?()[]{}\"'").lower() for token in response.split() if token.strip()}
     reference_tokens = {token for token in reference_tokens if len(token) > 2}

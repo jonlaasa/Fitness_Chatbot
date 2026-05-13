@@ -23,6 +23,8 @@ def run_evaluation(
     embeddings_model: str = "nomic-embed-text:latest",
     resume_run_dir: str | Path | None = None,
 ) -> Path:
+    # Orquestador principal de la evaluación:
+    # recorre variantes, genera respuestas, calcula métricas y guarda tablas.
     selected_variants = variants or list_eval_variants()
     selected_metrics = metrics or list_eval_metrics()
     samples = load_eval_samples(csv_path, max_rows=max_rows)
@@ -41,6 +43,7 @@ def run_evaluation(
         summary_df = pd.DataFrame(columns=["variant", *list_eval_metrics()])
 
     for variant_name in selected_variants:
+        # Primero generamos las predicciones de la variante concreta.
         predictions = []
         for sample in samples:
             prediction = run_variant_prediction(
@@ -71,6 +74,8 @@ def run_evaluation(
         variant_dir = run_dir / variant_name
         variant_dir.mkdir(parents=True, exist_ok=True)
 
+        # Guardamos tanto la respuesta final como el contexto recuperado para
+        # poder inspeccionar después qué ocurrió en cada experimento.
         (variant_dir / "predictions.json").write_text(
             json.dumps([asdict(pred) for pred in predictions], ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -84,6 +89,7 @@ def run_evaluation(
             detailed_df = _merge_variant_details(existing_detailed_df, detailed_df)
         detailed_df.to_csv(detailed_path, index=False, encoding="utf-8")
 
+        # La tabla resumen se va completando de forma incremental.
         summary_df = _upsert_summary_row(
             summary_df=summary_df,
             variant_name=variant_name,
@@ -117,6 +123,7 @@ def run_evaluation(
 
 
 def _to_markdown_table(df: pd.DataFrame) -> str:
+    # Evitamos depender de librerías extra para generar una tabla simple en Markdown.
     if df.empty:
         return "| variant | answer_relevancy | faithfulness | context_recall | factual_correctness |\n|---|---|---|---|---|\n"
 
@@ -135,6 +142,8 @@ def _upsert_summary_row(
     variant_name: str,
     metric_values: dict,
 ) -> pd.DataFrame:
+    # Inserta una variante nueva o actualiza una ya existente si estamos
+    # completando resultados en varias ejecuciones.
     if summary_df.empty:
         summary_df = pd.DataFrame(columns=["variant", *list_eval_metrics()])
 
@@ -158,6 +167,8 @@ def _upsert_summary_row(
 
 
 def _merge_variant_details(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFrame:
+    # Cuando reanudamos una evaluación, unimos las columnas nuevas con las
+    # ya existentes sin perder resultados anteriores.
     key_columns = ["variant", "user_input"]
     for column in key_columns:
         if column not in existing_df.columns:
@@ -184,6 +195,7 @@ def _merge_variant_details(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> p
 
 
 def _normalize_summary_columns(summary_df: pd.DataFrame) -> pd.DataFrame:
+    # Mantiene el orden de columnas de la tabla final estable entre ejecuciones.
     desired_columns = ["variant", *list_eval_metrics()]
     for column in desired_columns:
         if column not in summary_df.columns:

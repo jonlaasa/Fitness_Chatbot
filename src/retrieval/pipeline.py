@@ -14,6 +14,7 @@ from src.utils.paths import DB_DIR
 
 @dataclass(slots=True)
 class RetrievalResult:
+    # Resultado unificado de una consulta RAG, útil tanto para CLI como para evaluación.
     question: str
     answer: str
     prompt: str
@@ -27,6 +28,7 @@ class RetrievalResult:
 
 @dataclass(slots=True)
 class RetrievalEngine:
+    # Motor principal del RAG: recupera contexto, construye el prompt y genera la respuesta.
     vector_store: object
     llm: object
     top_k: int
@@ -38,6 +40,8 @@ class RetrievalEngine:
     guardrail_service: GuardrailService | None = None
 
     def answer(self, question: str) -> RetrievalResult:
+        # Si los guardrails están activados, primero validamos si la pregunta
+        # pertenece al dominio del proyecto antes de gastar tiempo en retrieval.
         if self.guardrails_enabled and self.guardrail_service is not None:
             scope_only = self.guardrail_service.check_scope(question)
             if not scope_only.in_scope:
@@ -60,12 +64,16 @@ class RetrievalEngine:
                     },
                 )
 
+        # Recuperamos los chunks más relevantes y luego construimos el prompt
+        # siguiendo la estrategia de prompting seleccionada.
         retrieved_documents = self._retrieve_documents(question)
         prompt_builder = get_prompt_strategy(self.prompt_strategy_name).builder
         prompt = prompt_builder(question, retrieved_documents)
         guardrail_details = None
 
         if self.guardrails_enabled and self.guardrail_service is not None:
+            # En modo guardado, la respuesta final pasa por una validación extra
+            # para forzar que quede anclada en el contexto recuperado.
             guarded_result = self.guardrail_service.run(
                 question=question,
                 retrieved_docs=retrieved_documents,
@@ -103,6 +111,9 @@ class RetrievalEngine:
         )
 
     def _retrieve_documents(self, question: str) -> list:
+        # El proyecto soporta dos modos:
+        # - similarity: vecinos más cercanos por similitud pura
+        # - mmr: equilibrio entre relevancia y diversidad
         if self.retrieval_mode == "mmr":
             retriever = self.vector_store.as_retriever(
                 search_type="mmr",
@@ -116,6 +127,8 @@ class RetrievalEngine:
         return self.vector_store.similarity_search(question, k=self.top_k)
 
     def _build_retrieval_kwargs(self) -> dict:
+        # Guardamos también la configuración de retrieval para poder inspeccionarla
+        # luego en la consola, en conversaciones guardadas o en la evaluación.
         if self.retrieval_mode == "mmr":
             return {
                 "k": self.top_k,
@@ -134,6 +147,8 @@ def get_retrieval_engine(
     retrieval_mode: str = "similarity",
     use_guardrails: bool = False,
 ) -> RetrievalEngine:
+    # Cacheamos el motor para no reabrir Chroma ni recargar componentes pesados
+    # en cada consulta interactiva.
     embedding_model = build_embedding_model()
     vector_store = load_chroma_index(db_path or DB_DIR, embedding_model)
     top_k = k or int(os.getenv("TOP_K", "3"))
@@ -162,6 +177,7 @@ def answer_question(
     retrieval_mode: str = "similarity",
     use_guardrails: bool = False,
 ) -> RetrievalResult:
+    # Función de entrada simple para scripts y pruebas rápidas.
     engine = get_retrieval_engine(
         db_path=db_path,
         model_name=model_name,
